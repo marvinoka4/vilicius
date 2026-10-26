@@ -1,11 +1,22 @@
 # %% [markdown]
 # # Store Sales: direct multi-horizon LightGBM
 #
-# One global LightGBM model on log1p(sales) for all 1782 store-family series.
-# Each training row is (series, cutoff date, horizon h in 1..16). Features use only
-# data up to the cutoff, plus things known in advance for the target day
-# (calendar, holidays, promotions, oil). The test set is forecast from the cutoff
-# 2017-08-15, so nothing inside the forecast window is ever needed.
+# Global LightGBM models on log1p(sales) for all 1782 store-family series. Training
+# on log1p with squared error optimises exactly what RMSLE measures.
+#
+# The main model is a direct multi-horizon model. Each training row is
+# (series, cutoff date, horizon h in 1..16). Features use only data up to the
+# cutoff, plus things known in advance for the target day (calendar, holidays,
+# promotions, oil). The test set is forecast from the cutoff 2017-08-15, so nothing
+# inside the forecast window is ever needed and there is no recursive forecasting.
+# A second, simpler lag-16 model is blended in at 20 percent.
+#
+# Holdout RMSLE (2017-07-31 to 2017-08-15): about 0.383 (0.3829 locally, 0.3841
+# on Kaggle, where the LightGBM build differs), against 0.5208 for a
+# same-weekday-average baseline. The full table of what was tried is in the
+# Validation section near the end.
+#
+# Runs on Kaggle CPU in about 10 to 15 minutes, using only the competition files.
 
 # %%
 import glob

@@ -67,6 +67,10 @@ fb, test = prepare(find_data_dir())
 # | Direct model, training from 2015-01 | 0.3838 |
 # | Blend: 0.8 direct (2015) + 0.2 lag-16 (2016-06) | 0.3829 |
 #
+# Run-to-run differences (seed, LightGBM version, thread count) move the holdout
+# score by about 0.001, so gains smaller than that are not meaningful. The blend's
+# gain is at that edge; it is kept because it never hurt across weights 0.2 to 0.5.
+#
 # Set `RUN_VALIDATION = False` to skip this step and only produce the submission.
 
 # %%

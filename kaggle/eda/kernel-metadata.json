@@ -12,5 +12,5 @@
   "competition_sources": ["store-sales-time-series-forecasting"],
   "kernel_sources": [],
   "model_sources": [],
-  "keywords": ["time series analysis", "data visualization", "eda"]
+  "keywords": ["time-series-analysis", "data-visualization", "eda"]
 }
