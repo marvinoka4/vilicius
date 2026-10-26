@@ -1,0 +1,9 @@
+data/
+outputs/
+submissions/
+*.csv
+*.parquet
+*.pkl
+__pycache__/
+.ipynb_checkpoints/
+kaggle/*/output/
