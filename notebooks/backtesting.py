@@ -206,12 +206,8 @@ print(f"model RMSLE across windows: min {res.model.min():.3f}, max {res.model.ma
 #   window (explained below). A single 16-day holdout is one draw from that spread, so
 #   a gap of a few hundredths between a holdout and the leaderboard is not surprising
 #   on its own.
-# - The model beats the baseline in nine windows out of ten. The exception is
-#   2017-02-21 to 03-08, which contains Carnaval (27 and 28 February). This compact
-#   model has no holiday features, so it only learns about Carnaval if it shows up in
-#   last year's numbers on the same dates, and in 2016 Carnaval was three weeks
-#   earlier. One window would never have told you that the missing holiday features
-#   matter; ten windows do.
+# - The model beats the baseline in nine windows out of ten. The exception is the
+#   window after 2017-02-20. The breakdown below shows what happened there.
 #
 # The practical rule: compare models on the *same* set of windows and look at the
 # per-window differences, not at one absolute number.
@@ -229,6 +225,37 @@ for cut in worst:
 for cut, t in tab.items():
     print(f"window after {cut}: share of squared error by family")
     print(t.to_string(), "\n")
+
+# %% [markdown]
+# Liquor, wine and beer dominate the two worst early-2017 windows. Ecuador bans
+# alcohol sales around elections, and 2017 had two: the first round on 19 February
+# and the runoff on 2 April.
+
+# %%
+lq = train[(train.family == "LIQUOR,WINE,BEER") & (train.date >= "2017-02-01") & (train.date <= "2017-04-15")]
+lq = lq.groupby("date").sales.sum()
+fig, ax = plt.subplots()
+ax.bar(lq.index, lq.values / 1e3, color=BLUE, width=0.8)
+ban = lq[lq == 0].index
+ax.scatter(ban, np.zeros(len(ban)) + 0.3, color=ORANGE, marker="v", s=60, zorder=3, label="zero sales in every store")
+ax.legend(loc="upper right")
+for cut in ("2017-02-20", "2017-03-20"):
+    a = pd.Timestamp(cut) + pd.Timedelta(days=1)
+    ax.axvspan(a, a + pd.Timedelta(days=H - 1), color=GRAY, alpha=0.12)
+ax.set_title("Liquor, wine and beer, all stores (thousands of units; shaded = backtest windows)")
+plt.show()
+
+# %% [markdown]
+# On 18 and 19 February and on 1 and 2 April 2017, liquor sales are exactly zero in
+# all 54 stores. The March window contains the runoff ban, which no feature in the
+# model knows about. The February window starts the day after the first ban, so the
+# model's most recent inputs (the last 3 and 7 days) include two days of zeros, and
+# then Carnaval (27 and 28 February) pushes sales well above normal. The model has no
+# holiday features, and its last-year features do not line up because Carnaval 2016
+# was almost three weeks earlier.
+#
+# Neither event says much about model quality, but each moves a 16-day score by
+# several hundredths. One window would never have revealed either.
 
 # %% [markdown]
 # ## 2. The 2016 window and two closed stores
@@ -296,13 +323,18 @@ print(diff.round(4).to_string())
 # %%
 fig, ax = plt.subplots(figsize=(12, 4))
 xx = np.arange(len(diff))
+TOP = 25
 for i, (col, color) in enumerate(zip(diff.columns, (ORANGE, AQUA, BLUE))):
-    ax.bar(xx + (i - 1) * 0.27, diff[col] * 1000, width=0.25, color=color, label=f"zero if no sales in {col}")
+    v = diff[col].values * 1000
+    ax.bar(xx + (i - 1) * 0.27, np.minimum(v, TOP), width=0.25, color=color, label=f"zero if no sales in {col}")
+for j in np.where((diff.values * 1000).max(axis=1) > TOP)[0]:
+    ax.text(xx[j], TOP + 0.8, f"up to +{(diff.values[j] * 1000).max():.0f}", ha="center", fontsize=8, color="#52514e")
+ax.set_ylim(-3, TOP + 4)
 ax.axhline(0, color=GRAY, lw=1)
 ax.set_xticks(xx, diff.index, fontsize=8)
 ax.set_ylabel("change in RMSLE x 1000")
-ax.set_title("Zero rule: effect per window (below 0 helps)")
-ax.legend(loc="lower left", fontsize=9)
+ax.set_title("Zero rule: effect per window (below 0 helps; bars above 25 are cut off)")
+ax.legend(loc="upper right", fontsize=9)
 plt.show()
 
 # %% [markdown]
@@ -347,8 +379,9 @@ plt.show()
 
 # %% [markdown]
 # In 2015 and 2016 the season built through late August and peaked in early
-# September. In 2017 it started a month earlier and was several times larger, so the
-# standard holdout (31 July to 15 August) already sits on the peak. A model that has
+# September. In 2017 it started about a month earlier and peaked at roughly twice the
+# 2016 level; in the first half of August it was 5 to 10 times higher than in the same
+# weeks of 2016. The standard holdout (31 July to 15 August) already sits on the peak. A model that has
 # learned "late August is higher than early August" from previous years will push the
 # test forecast up further, while 2017's season may have been past its peak. The
 # holdout cannot reveal this, because the holdout is the part of 2017 that went up.
@@ -414,7 +447,22 @@ print(out.tail(8).round(2).to_string())
 # judged only on two holdouts (the standard one and the 2016 late-August window
 # without stores 18 and 25):
 #
-# RESULTS_PLACEHOLDER
+# | Version | Holdout A (2017-07-31 to 08-15) | Holdout B (2016-08-16 to 31, without stores 18 and 25) | Leaderboard |
+# |---|---|---|---|
+# | Same-weekday 12-week mean | 0.521 | 0.458 | 0.499 |
+# | LightGBM blend | 0.383 | 0.381 | 0.420 |
+# | LightGBM blend + 20% per-family linear model | 0.381 | 0.377 | 0.410 |
+#
+# The linear model (one ridge regression per family on the last 224 days: store level,
+# store-by-weekday, paydays, holidays, promotions) never looks at last year, and it
+# responds to promotions in a damped, linear way. Its gain on the leaderboard (0.010)
+# was larger than on either holdout, which fits the two risks above. I also tried
+# capping future promotion counts at each series' recent maximum; it made holdout A
+# much worse (promotions were rising for real in late July 2017), so it was dropped
+# even though it would have softened the day-1 spike.
+#
+# About 0.03 of the gap remains. Some of it is ordinary window-to-window variation
+# (section 1) and some may be events that no sales history predicts (section 2).
 #
 # ## Takeaways
 #

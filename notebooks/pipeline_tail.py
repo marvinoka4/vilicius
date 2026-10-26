@@ -77,7 +77,8 @@ sub.describe()
 # Two things about 2017-08-16 to 08-31 are not covered by either holdout:
 #
 # - The 2017 back-to-school season (school and office supplies, Sierra region) started
-#   about a month earlier than in 2015 and 2016 and was several times larger. Holdout A
+#   about a month earlier than in 2015 and 2016 and peaked at about twice the 2016
+#   level. Holdout A
 #   sits on its peak. Last-year features expect late August to be higher still, which
 #   may not hold in 2017.
 # - On 2017-08-16 three times the usual number of items are on promotion. Historically,
@@ -87,5 +88,7 @@ sub.describe()
 #   forecast is left as is.
 #
 # The leaderboard scores the whole test set (there is no private split). Public
-# leaderboard RMSLE: 0.41968 for the LightGBM blend alone; LB_PLACEHOLDER for this
-# version.
+# leaderboard RMSLE: 0.41968 for the LightGBM blend alone, 0.41008 with the linear
+# model added (this notebook). The linear model gained more on the leaderboard than on
+# either holdout, which fits the two risks above: it does not use last year's numbers
+# and it reacts to promotions in a damped, linear way.

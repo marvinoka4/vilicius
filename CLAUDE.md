@@ -77,19 +77,22 @@ Holdouts from here on: A = cutoff 2017-07-30 (all stores), B = cutoff 2016-08-15
 
 | Date | Change | Holdout A / B | LB RMSLE |
 |---|---|---|---|
-| 2026-10-27 | Gap audit (src/audit.py): features at the test cutoff end on 2017-08-15 (last, mean_7, mean_112, promo_sum_14 checked against raw data); test onpromotion joins on (date, store_nbr, family) and promo_future_sum matches; oil on target days matches the filled oil.csv; submission ids equal test.csv and sample_submission row for row. No pipeline bug found | | |
-| 2026-10-27 | Reference: LightGBM blend (0.8 direct + 0.2 lag-16), 365d zero rule | 0.38287 / 0.38094 | 0.41968 |
-| 2026-10-27 | Per-family ridge on log1p, 112 days, store level + trend + store x dow + payday + holidays + centred log promo, ridge also on store levels (bug: shrinks levels toward 0) | 0.52528 / 0.56474 | |
-| 2026-10-27 | Same, store levels unpenalised. Windows 112/168/224/280/364, alpha 3/30/100, trend on/off tried; 224 days, alpha 30, no trend is best overall | alone 0.41631 / 0.40588 | |
-| 2026-10-27 | Blend 0.8 LightGBM + 0.2 linear (224, 30, no trend). Weight 0.1 to 0.4 tried; 0.2 best on A, 0.3 slightly better on B; kept 0.2 | 0.38137 / 0.37650 | |
-| 2026-10-27 | Promo cap: target-day promo features capped at 1.5x the series' max over the last 56 days. Diagnostic holdout C (cutoff 2016-01-19, contains the largest promo spikes) 0.39053 -> 0.38946 | 0.41015 / 0.38136 (rejected) | |
+| 2026-10-26 | Gap audit (src/audit.py): features at the test cutoff end on 2017-08-15 (last, mean_7, mean_112, promo_sum_14 checked against raw data); test onpromotion joins on (date, store_nbr, family) and promo_future_sum matches; oil on target days matches the filled oil.csv; submission ids equal test.csv and sample_submission row for row. No pipeline bug found | | |
+| 2026-10-26 | Reference: LightGBM blend (0.8 direct + 0.2 lag-16), 365d zero rule | 0.38287 / 0.38094 | 0.41968 |
+| 2026-10-26 | Per-family ridge on log1p, 112 days, store level + trend + store x dow + payday + holidays + centred log promo, ridge also on store levels (bug: shrinks levels toward 0) | 0.52528 / 0.56474 | |
+| 2026-10-26 | Same, store levels unpenalised. Windows 112/168/224/280/364, alpha 3/30/100, trend on/off tried; 224 days, alpha 30, no trend is best overall | alone 0.41631 / 0.40588 | |
+| 2026-10-26 | Blend 0.8 LightGBM + 0.2 linear (224, 30, no trend). Weight 0.1 to 0.4 tried; 0.2 best on A, 0.3 slightly better on B; kept 0.2 | 0.38137 / 0.37650 | |
+| 2026-10-26 | Same blend run on Kaggle (pipeline notebook v4): A 0.38227 (Kaggle's v2 reference was 0.38414), B 0.37650 | 0.38227 / 0.37650 (Kaggle) | 0.41008 (notebook v4 output, sub 57671205) |
+| 2026-10-26 | Linear weight 0.3 instead of 0.2: A 0.38221, B 0.37607. Worse than 0.2 on A, so not submitted | 0.38221 / 0.37607 | |
+| 2026-10-26 | Promo cap: target-day promo features capped at 1.5x the series' max over the last 56 days. Diagnostic holdout C (cutoff 2016-01-19, contains the largest promo spikes) 0.39053 -> 0.38946 | 0.41015 / 0.38136 (rejected) | |
 
 Notes on the leaderboard gap (holdout 0.383 vs LB 0.420; the LB scores the whole test set):
 - No pipeline bug (see audit row).
-- The 2017 back-to-school season (school and office supplies, Sierra) started about a month earlier than in 2015 and 2016 and was 5 to 10 times larger: about 23k units/week in early August 2017 vs 1 to 2k in 2016. Holdout A sits on the peak; last-year features push the test forecast for late August up further, which may not hold.
+- The 2017 back-to-school season (school and office supplies, Sierra) started about a month earlier than in 2015 and 2016 and peaked at about twice the 2016 level. In early August it was 5 to 10 times the same weeks of 2016 (about 23k units/week in the Sierra vs 1 to 2k). Holdout A sits on the peak; last-year features push the test forecast for late August up further, which may not hold.
 - 2017-08-16 (test day 1) has 30,539 items on promotion vs a median of about 12k. Historically a family whose promotions tripled gained only about +0.15 mean log1p (median about 0). The model forecasts day 1 about +0.2 above the following Wednesday overall and +0.4 to +1.8 for families whose promotions jump 4 to 5x (lingerie, lawn and garden, school supplies). The promo cap that would address this failed holdout A, so it is documented, not shipped.
 - In the 2016 late-August window, store closures (18, 25) made up 75 percent of the squared error. The test window can contain events like that too; nothing in the training data can predict them.
-- Backtesting a compact model over ten 16-day windows (Notebook C): RMSLE ranges from 0.39 to 0.58 across 2017 windows, so a single holdout is a noisy estimate.
+- Backtesting a compact model over ten 16-day windows (Notebook C): RMSLE ranges from 0.39 to 0.58 across 2017 windows, so a single holdout is a noisy estimate. The bad windows are explained by events: store closures (2016-08), store 52 opening (2017-04), election alcohol bans on 2017-02-18/19 and 2017-04-01/02 plus Carnaval.
+- Adding the linear model gained 0.010 on the LB but only 0.0015 / 0.0044 on the holdouts. Consistent with the test window punishing LightGBM's last-year and promo extrapolation, which the linear model does not do. Remaining gap about 0.03.
 
 ## Submissions
 
@@ -97,9 +100,11 @@ Notes on the leaderboard gap (holdout 0.383 vs LB 0.420; the LB scores the whole
 |---|---|---|
 | 2026-10-26 | CSV upload, baseline (12-week same-weekday mean) | 0.49918 |
 | 2026-10-26 | Kernel output, marvinoka4/store-sales-direct-multi-horizon-lightgbm v2 | 0.41968 |
+| 2026-10-26 | Kernel output, marvinoka4/store-sales-direct-multi-horizon-lightgbm v4 (LightGBM blend + 0.2 linear) | 0.41008 |
 
 ## Kaggle assets (all private)
 
 - EDA notebook: https://www.kaggle.com/code/marvinoka4/store-sales-eda-what-drives-favorita-sales
 - Pipeline notebook: https://www.kaggle.com/code/marvinoka4/store-sales-direct-multi-horizon-lightgbm
+- Backtesting notebook: https://www.kaggle.com/code/marvinoka4/backtesting-store-sales-one-holdout-is-not-enough (Kaggle caps titles at 50 characters, so the Kaggle title is "Backtesting Store Sales: One Holdout Is Not Enough"; the notebook heading keeps the full title)
 - Dataset: not created. The rules (section 7.B) forbid redistributing the Competition Data to non-participants, and a per-store holiday table or gap-filled oil series is a direct reshape of competition files. The pipeline notebook computes these features from the competition data instead.
