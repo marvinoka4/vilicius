@@ -4,6 +4,8 @@ Usage: python src/experiment.py NAME START STRIDE MODE ROUNDS
 MODE: single (one model, h as a feature), perh (one model per horizon), lag16.
 Saves holdout predictions to outputs/val_NAME.npy for blending.
 """
+import json
+import os
 import sys
 import time
 
@@ -11,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, "src")
-from pipeline import HORIZON, fit_predict, make_lag16, make_train, prepare, zero_rule  # noqa: E402
+from pipeline import HORIZON, LGB_PARAMS, fit_predict, make_lag16, make_train, prepare, zero_rule  # noqa: E402
 
 name, start, stride, per_h, rounds = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
 t0 = time.time()
@@ -26,7 +28,8 @@ else:
     valid = fb.build(cut0)
 print(f"train rows {len(train):,}  features {train.shape[1] - 3}  build {time.time() - t0:.0f}s", flush=True)
 
-pred, model, logs = fit_predict(train, valid.assign(h=16) if per_h == "lag16" else valid, rounds,
+params = dict(LGB_PARAMS, **json.loads(os.environ.get("LGB_OVERRIDE", "{}")))
+pred, model, logs = fit_predict(train, valid.assign(h=16) if per_h == "lag16" else valid, rounds, params=params,
                                 per_horizon=per_h == "perh", valid=valid.assign(h=16) if per_h == "lag16" else valid)
 # log-space RMSE by round (holdout has no closed days, so this is RMSLE before clipping)
 curve = np.sqrt(np.mean(np.stack(logs), 0)) if per_h == "perh" else np.sqrt(logs[0])

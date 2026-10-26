@@ -58,3 +58,13 @@ Metric: RMSLE. Target: `sales` per (date, store_nbr, family), 2017-08-16 to 2017
 |---|---|---|---|
 | 2026-10-26 | Zero rule (no sales in last 21 days) + 14-day mean of log1p | 0.53612 | |
 | 2026-10-26 | Zero rule + same-weekday mean of log1p over last 12 weeks (decay 1.0) | 0.52084 | 0.49918 (CSV upload, sub 57664521) |
+| 2026-10-26 | LightGBM direct model (h as feature), cutoffs every 7 days from 2016-06, 255 leaves, 800 rounds, no zero rule | 0.39713 | |
+| 2026-10-26 | Same, zero rule tested by window: 21d 0.40351, 56d 0.40155, 180d 0.40164, 365d 0.39622. Short windows hurt (series come back); keep 365d | 0.39622 | |
+| 2026-10-26 | Direct model, training from 2015-01 (365d zero rule) | 0.38380 | |
+| 2026-10-26 | Direct model, training from 2017-01 | 0.40504 | |
+| 2026-10-26 | Per-horizon models (16), from 2016-06, 600 rounds | 0.42079 | |
+| 2026-10-26 | Lag-16 single model, from 2016-06 | 0.39438 | |
+| 2026-10-26 | Lag-16 single model, from 2015-01 | 0.39613 | |
+| 2026-10-26 | Direct from 2015, num_leaves 63, min_data 300, 1500 rounds | 0.38640 | |
+| 2026-10-26 | Direct from 2015, cutoff stride 3 (7.6M rows) | 0.38352 | |
+| 2026-10-26 | Blend 0.8 direct 2015 + 0.2 lag-16 2016-06 (weights 0.2 to 0.5 tried; 0.2 best) | 0.38287 | |

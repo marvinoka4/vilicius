@@ -322,7 +322,14 @@ def prepare(data_dir):
     fb = FeatureBuilder(dates, keys, Y, P, H, oil_series(oil, dates))
     return fb, te
 
+# %% [markdown]
+# ## Lag-16 variant
+#
+# The second model uses a simpler setup: each target day gets features from the
+# cutoff exactly 16 days earlier. It needs one cutoff per target day, so it is
+# trained on every day rather than every 7th.
 
+# %%
 def make_lag16(fb, first_target, last_target, start=None):
     """Rows for the lag>=16 variant: every target day t uses the cutoff t-16,
     so all features are at least 16 days old. One row per series per target day."""

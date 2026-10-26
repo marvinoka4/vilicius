@@ -1,0 +1,16 @@
+{
+  "id": "marvinoka4/store-sales-eda-what-drives-favorita-sales",
+  "title": "Store Sales EDA: What Drives Favorita Sales",
+  "code_file": "store-sales-eda.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": ["store-sales-time-series-forecasting"],
+  "kernel_sources": [],
+  "model_sources": [],
+  "keywords": ["time series analysis", "data visualization", "eda"]
+}
