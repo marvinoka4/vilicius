@@ -18,10 +18,11 @@ from pipeline import HORIZON, LGB_PARAMS, fit_predict, make_lag16, make_train, p
 name, start, stride, per_h, rounds = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
 t0 = time.time()
 fb, te = prepare("data")
-cut0 = int(np.where(fb.dates == pd.Timestamp("2017-07-30"))[0][0])
+CUT = pd.Timestamp(os.environ.get("CUTOFF", "2017-07-30"))
+cut0 = int(np.where(fb.dates == CUT)[0][0])
 if per_h == "lag16":
     train = make_lag16(fb, pd.Timestamp(start) + pd.Timedelta(days=16), fb.dates[cut0], start=start)
-    valid = make_lag16(fb, pd.Timestamp("2017-07-31"), pd.Timestamp("2017-08-15"))
+    valid = make_lag16(fb, CUT + pd.Timedelta(days=1), CUT + pd.Timedelta(days=HORIZON))
     valid["h"] = valid.cutoff.values + 16 - cut0  # report by forecast day
 else:
     train = make_train(fb, cut0, pd.Timestamp(start), stride)
@@ -55,3 +56,11 @@ np.save("outputs/val_target.npy", y)
 if per_h != "perh":
     imp = pd.Series(model.feature_importance("gain"), index=model.feature_name()).sort_values(ascending=False)
     print((imp / imp.sum()).round(4).head(25).to_string())
+
+# error by family (with the 365-day zero rule)
+dead = zero_rule(fb.Y, cut0, 365)[valid.series.values]
+pz = np.where(dead, 0, p)
+fam = fb.keys.family.values[valid.series.values]
+e = pd.DataFrame({"fam": fam, "se": (pz - y) ** 2, "bias": pz - y}).groupby("fam").agg(
+    rmse=("se", lambda s: np.sqrt(s.mean())), bias=("bias", "mean"))
+print(e.sort_values("rmse", ascending=False).head(8).round(3).to_string())

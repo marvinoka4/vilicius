@@ -68,3 +68,20 @@ Metric: RMSLE. Target: `sales` per (date, store_nbr, family), 2017-08-16 to 2017
 | 2026-10-26 | Direct from 2015, num_leaves 63, min_data 300, 1500 rounds | 0.38640 | |
 | 2026-10-26 | Direct from 2015, cutoff stride 3 (7.6M rows) | 0.38352 | |
 | 2026-10-26 | Blend 0.8 direct 2015 + 0.2 lag-16 2016-06 (weights 0.2 to 0.5 tried; 0.2 best) | 0.38287 | |
+| 2026-10-26 | Final pipeline on Kaggle (notebook v1/v2). Same code, Kaggle's LightGBM build gives a slightly different holdout; run-to-run noise is about 0.001 | 0.38414 (Kaggle) | 0.41968 (notebook v2 output, sub 57667115) |
+| 2026-10-26 | Extra backtest, cutoff 2016-08-15 (same calendar window as test, one year earlier), direct model from 2015. Stores 18 and 25 closed during the window (unforecastable). Excluding stores 18, 25, 52: model 0.3864 vs baseline 0.4577; school supplies 0.604 vs 1.359. Not used for tuning, only as a sanity check | 0.3864 (open stores) | |
+
+Notes on the leaderboard gap: holdout improved 0.521 to 0.383 but public LB only 0.499 to 0.420. The 2016 backtest shows the model also wins clearly on a late-August window, so no pipeline bug was found. Not chasing the gap on the LB.
+
+## Submissions
+
+| Date | Source | Public LB |
+|---|---|---|
+| 2026-10-26 | CSV upload, baseline (12-week same-weekday mean) | 0.49918 |
+| 2026-10-26 | Kernel output, marvinoka4/store-sales-direct-multi-horizon-lightgbm v2 | 0.41968 |
+
+## Kaggle assets (all private)
+
+- EDA notebook: https://www.kaggle.com/code/marvinoka4/store-sales-eda-what-drives-favorita-sales
+- Pipeline notebook: https://www.kaggle.com/code/marvinoka4/store-sales-direct-multi-horizon-lightgbm
+- Dataset: not created. The rules (section 7.B) forbid redistributing the Competition Data to non-participants, and a per-store holiday table or gap-filled oil series is a direct reshape of competition files. The pipeline notebook computes these features from the competition data instead.

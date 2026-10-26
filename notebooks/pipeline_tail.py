@@ -67,6 +67,15 @@ fb, test = prepare(find_data_dir())
 # | Direct model, training from 2015-01 | 0.3838 |
 # | Blend: 0.8 direct (2015) + 0.2 lag-16 (2016-06) | 0.3829 |
 #
+# A second check on the same calendar window as the test set, one year earlier
+# (cutoff 2016-08-15, direct model only): 0.386 against 0.458 for the baseline,
+# scored on the stores that stayed open (stores 18 and 25 closed during that window,
+# which no model can foresee). School and office supplies, which ramp up in late
+# August for the Sierra school year, scored 0.60 against 1.36 for the baseline:
+# the last-year features pick up the seasonal ramp.
+#
+# Public leaderboard score of this notebook's submission: 0.41968.
+#
 # Run-to-run differences (seed, LightGBM version, thread count) move the holdout
 # score by about 0.001, so gains smaller than that are not meaningful. The blend's
 # gain is at that edge; it is kept because it never hurt across weights 0.2 to 0.5.
