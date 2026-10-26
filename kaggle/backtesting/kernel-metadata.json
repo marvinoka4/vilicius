@@ -1,0 +1,16 @@
+{
+  "id": "marvinoka4/backtesting-store-sales-one-holdout-is-not-enough",
+  "title": "Backtesting Store Sales: One Holdout Is Not Enough",
+  "code_file": "backtesting-store-sales.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": ["store-sales-time-series-forecasting"],
+  "kernel_sources": [],
+  "model_sources": [],
+  "keywords": ["time-series-analysis", "lightgbm", "data-visualization"]
+}

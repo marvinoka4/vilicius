@@ -357,3 +357,122 @@ def make_lag16(fb, first_target, last_target, start=None):
             df = df[df.target.notna().values & (df.age.values >= 0)]
         rows.append(df)
     return pd.concat(rows, ignore_index=True)
+
+
+# %% [markdown]
+# ## LightGBM forecast
+#
+# The LightGBM part of the forecast blends two models:
+# - **Direct model**: trained on cutoffs every 7 days since `main_start`, all 16
+#   horizons in one model with `h` as a feature. Every forecast day sees the most
+#   recent data.
+# - **Lag-16 model**: each target day uses features from 16 days before it, so all
+#   lags are at least 16 days old. Weaker on its own, but its errors differ from the
+#   direct model's.
+
+# %%
+CONFIG = dict(
+    main_start="2015-01-01", main_stride=7, main_rounds=800,
+    lag16_start="2016-06-01", lag16_rounds=800, lag16_weight=0.2,
+    linear_window=224, linear_alpha=30.0, linear_weight=0.2,
+    zero_days=365,
+)
+
+
+def lgb_forecast(fb, cut0, cfg=CONFIG, seed=0):
+    """Forecast the 16 days after cutoff index `cut0`. Returns the feature frame of
+    fb.build(cut0) (horizon blocks of all series) and log1p predictions in that order."""
+    t = time.time()
+    train = make_train(fb, cut0, pd.Timestamp(cfg["main_start"]), cfg["main_stride"])
+    X = fb.build(cut0)
+    print(f"direct model: {len(train):,} training rows", flush=True)
+    p_main = fit_predict(train, X, cfg["main_rounds"], seed=seed)[0]
+    del train
+
+    start2 = pd.Timestamp(cfg["lag16_start"])
+    train = make_lag16(fb, start2 + pd.Timedelta(days=HORIZON), fb.dates[cut0], start=start2)
+    X2 = make_lag16(fb, fb.dates[cut0 + 1], fb.dates[cut0 + HORIZON]).assign(h=HORIZON)
+    print(f"lag-16 model: {len(train):,} training rows", flush=True)
+    p_lag = fit_predict(train, X2, cfg["lag16_rounds"], seed=seed)[0]
+    del train
+
+    w = cfg["lag16_weight"]
+    print(f"LightGBM done in {time.time() - t:.0f}s")
+    return X, (1 - w) * p_main + w * p_lag
+
+
+# %% [markdown]
+# ## Per-family linear model
+#
+# A second, very different model: for each product family, one ridge regression on
+# log1p(sales) over the last `window` days, pooled across the 54 stores. Terms:
+# - a level and a linear trend per store,
+# - day of week per store (stores differ a lot in weekly shape),
+# - payday flags (15th, month end, the day after each),
+# - the per-store holiday flags built above,
+# - log1p(onpromotion), centred on the store's own average over the window.
+#
+# It only knows recent history, so it cannot copy last year's seasonal shape. That
+# is exactly why its errors differ from LightGBM's.
+
+# %%
+def linear_design(fb, s_idx, t_idx, cut0, window, trend=True):
+    """Design matrix for series s_idx (one family) at day indices t_idx. The first
+    len(s_idx) columns are the per-store levels."""
+    n_s = len(s_idx)
+    S = np.repeat(np.eye(n_s), len(t_idx), axis=0)
+    tt = np.tile(t_idx, n_s)
+    ss = np.repeat(s_idx, len(t_idx))
+    d = fb.dates[tt]
+    trend = ((tt - cut0) / window)[:, None] * S if trend else np.zeros((len(tt), 0))
+    dow = np.eye(7)[d.dayofweek.values]
+    store_dow = (S[:, :, None] * dow[:, None, :]).reshape(len(tt), -1)
+    cal = np.column_stack([
+        (d.day == 15) | d.is_month_end, np.isin(d.day, (1, 16)), d.day <= 5,
+    ]).astype(float)
+    st = fb.store_idx[ss]
+    hol = np.column_stack([fb.H[k][st, tt] for k in
+                           ("hol_nat", "hol_reg", "hol_loc", "bridge", "additional", "workday", "event")])
+    lp = np.log1p(fb.P[ss, tt])
+    base = np.log1p(fb.P[:, cut0 - window + 1:cut0 + 1]).mean(1)[ss]
+    return np.column_stack([S, trend, store_dow, cal, hol, lp - base]), ss, tt
+
+
+def linear_forecast(fb, cut0, window=224, alpha=30.0, trend=False):
+    """Log1p predictions in fb.build(cut0) row order (horizon blocks of all series).
+    Ridge penalty `alpha` applies to every term except the per-store levels."""
+    n = fb.Y.shape[0]
+    out = np.zeros((HORIZON, n))
+    hist = np.arange(cut0 - window + 1, cut0 + 1)
+    fut = np.arange(cut0 + 1, cut0 + HORIZON + 1)
+    for fam in np.unique(fb.keys.family_code.values):
+        s_idx = np.where(fb.keys.family_code.values == fam)[0]
+        A, ss, tt = linear_design(fb, s_idx, hist, cut0, window, trend)
+        y = fb.Y[ss, tt]
+        # skip closed days and days before a series first sold anything
+        m = ~np.isnan(y) & (tt >= fb.firstpos[ss])
+        A, y = A[m], y[m]
+        pen = np.full(A.shape[1], alpha)
+        pen[:len(s_idx)] = 1e-6
+        beta = np.linalg.solve(A.T @ A + np.diag(pen), A.T @ y)
+        B, ss_f, tt_f = linear_design(fb, s_idx, fut, cut0, window, trend)
+        out[tt_f - cut0 - 1, ss_f] = B @ beta
+    return out.reshape(-1)
+
+
+# %% [markdown]
+# ## Final forecast
+#
+# 80 percent LightGBM, 20 percent linear model, both in log1p space. Then clip at 0
+# and set series with no sales in the 365 days before the cutoff to 0.
+
+# %%
+def forecast(fb, cut0, cfg=CONFIG):
+    X, p_lgb = lgb_forecast(fb, cut0, cfg)
+    p_lin = linear_forecast(fb, cut0, cfg["linear_window"], cfg["linear_alpha"])
+    w = cfg["linear_weight"]
+    p = np.clip((1 - w) * p_lgb + w * p_lin, 0, None)
+    dead = zero_rule(fb.Y, cut0, cfg["zero_days"])[X.series.values]
+    p[dead] = 0
+    print(f"{dead.sum() // HORIZON} series set to zero")
+    return X, p

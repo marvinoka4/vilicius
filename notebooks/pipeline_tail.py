@@ -1,97 +1,54 @@
-# %% [markdown]
-# ## Forecast function
-#
-# The final forecast blends two LightGBM models:
-# - **Direct model**: trained on cutoffs every 7 days since `MAIN_START`, all 16
-#   horizons in one model with `h` as a feature. Every forecast day sees the most
-#   recent data.
-# - **Lag-16 model**: each target day uses features from 16 days before it, so all
-#   lags are at least 16 days old. Weaker on its own, but its errors differ from the
-#   direct model's, which makes the blend better than either.
-#
-# After blending, predictions are clipped at 0 and series that sold nothing in the
-# 365 days before the cutoff are set to 0.
-
-# %%
-CONFIG = dict(
-    main_start="2015-01-01", main_stride=7, main_rounds=800,
-    lag16_start="2016-06-01", lag16_rounds=800,
-    lag16_weight=0.2, zero_days=365,
-)
-
-
-def forecast(fb, cut0, cfg, seed=0):
-    """Forecast the 16 days after cutoff index `cut0`. Returns log1p predictions in
-    the row order of fb.build(cut0): horizon blocks of all series."""
-    t = time.time()
-    train = make_train(fb, cut0, pd.Timestamp(cfg["main_start"]), cfg["main_stride"])
-    X = fb.build(cut0)
-    print(f"direct model: {len(train):,} training rows", flush=True)
-    p_main = fit_predict(train, X, cfg["main_rounds"], seed=seed)[0]
-    del train
-
-    start2 = pd.Timestamp(cfg["lag16_start"])
-    train = make_lag16(fb, start2 + pd.Timedelta(days=HORIZON), fb.dates[cut0], start=start2)
-    X2 = make_lag16(fb, fb.dates[cut0 + 1], fb.dates[cut0 + HORIZON]).assign(h=HORIZON)
-    print(f"lag-16 model: {len(train):,} training rows", flush=True)
-    p_lag = fit_predict(train, X2, cfg["lag16_rounds"], seed=seed)[0]
-    del train
-
-    w = cfg["lag16_weight"]
-    p = np.clip((1 - w) * p_main + w * p_lag, 0, None)
-    dead = zero_rule(fb.Y, cut0, cfg["zero_days"])[X.series.values]
-    p[dead] = 0
-    print(f"forecast done in {time.time() - t:.0f}s, {dead.sum() // HORIZON} series set to zero")
-    return X, p
-
-
 fb, test = prepare(find_data_dir())
 
 # %% [markdown]
-# ## Validation
+# ## Validation on two holdouts
 #
-# The holdout mirrors the test setup exactly: the last 16 days of train
-# (2017-07-31 to 2017-08-15) are hidden, the cutoff is 2017-07-30, and the models
-# are trained only on targets up to that cutoff. All choices in this notebook
-# (training start, model types, blend weight, zero rule) were made on this holdout,
-# never on the leaderboard.
+# Both holdouts mirror the test setup exactly: a cutoff day, models trained only on
+# targets up to that day, and a 16-day forecast after it.
 #
-# Holdout results that led here (RMSLE):
+# - **A**: 2017-07-31 to 2017-08-15, the last 16 days of train, all stores.
+# - **B**: 2016-08-16 to 2016-08-31, the same calendar window as the test set one
+#   year earlier. Stores 18 and 25 are left out of the score because they closed
+#   during the window, which no model can foresee from sales history.
 #
-# | Setup | Holdout |
-# |---|---|
-# | Same-weekday mean of the last 12 weeks (baseline) | 0.5208 |
-# | Direct model, training from 2017-01 | 0.4050 |
-# | Direct model, training from 2016-06 | 0.3962 |
-# | Lag-16 model, training from 2016-06 | 0.3944 |
-# | Direct model, training from 2015-01 | 0.3838 |
-# | Blend: 0.8 direct (2015) + 0.2 lag-16 (2016-06) | 0.3829 |
+# Every choice (training start, model types, blend weights, zero rule) was made on
+# these holdouts, never on the leaderboard. A change is kept only if it improves
+# both.
 #
-# A second check on the same calendar window as the test set, one year earlier
-# (cutoff 2016-08-15, direct model only): 0.386 against 0.458 for the baseline,
-# scored on the stores that stayed open (stores 18 and 25 closed during that window,
-# which no model can foresee). School and office supplies, which ramp up in late
-# August for the Sierra school year, scored 0.60 against 1.36 for the baseline:
-# the last-year features pick up the seasonal ramp.
+# | Setup | A | B |
+# |---|---|---|
+# | Same-weekday mean of the last 12 weeks (baseline) | 0.5208 | 0.4577 |
+# | Direct LightGBM, training from 2016-06 | 0.3962 | |
+# | Direct LightGBM, training from 2015-01 | 0.3838 | 0.3864 |
+# | LightGBM blend (0.8 direct + 0.2 lag-16) | 0.3829 | 0.3809 |
+# | Linear model alone (224 days, ridge 30, no trend) | 0.4163 | 0.4059 |
+# | **0.8 LightGBM blend + 0.2 linear (this notebook)** | **0.3814** | **0.3765** |
 #
-# Public leaderboard score of this notebook's submission: 0.41968.
+# Run-to-run differences (seed, LightGBM version, thread count) move these scores by
+# about 0.001, so smaller gains are not meaningful.
 #
-# Run-to-run differences (seed, LightGBM version, thread count) move the holdout
-# score by about 0.001, so gains smaller than that are not meaningful. The blend's
-# gain is at that edge; it is kept because it never hurt across weights 0.2 to 0.5.
+# Tried and rejected: zeroing series with no sales in the last 21 or 56 days (hurts:
+# many come back), per-horizon models, smaller trees, and capping future promotion
+# counts at the series' recent maximum (holdout A got much worse, because promotions
+# were rising for real in late July 2017).
 #
 # Set `RUN_VALIDATION = False` to skip this step and only produce the submission.
 
 # %%
 RUN_VALIDATION = True
 
+
+def holdout_score(cutoff, drop_stores=()):
+    c = int(np.where(fb.dates == pd.Timestamp(cutoff))[0][0])
+    X, p = forecast(fb, c)
+    y = X.target.values
+    keep = ~np.isin(fb.keys.store_nbr.values[X.series.values], drop_stores)
+    return float(np.sqrt(np.mean((p[keep] - y[keep]) ** 2)))
+
+
 if RUN_VALIDATION:
-    cut_val = int(np.where(fb.dates == pd.Timestamp("2017-07-30"))[0][0])
-    Xv, pv = forecast(fb, cut_val, CONFIG)
-    yv = Xv.target.values
-    print(f"holdout RMSLE: {np.sqrt(np.mean((pv - yv) ** 2)):.5f}")
-    by_h = [np.sqrt(np.mean((pv[Xv.h.values == h] - yv[Xv.h.values == h]) ** 2)) for h in range(1, HORIZON + 1)]
-    print("by horizon:", " ".join(f"{v:.3f}" for v in by_h))
+    print(f"holdout A RMSLE: {holdout_score('2017-07-30'):.5f}")
+    print(f"holdout B RMSLE: {holdout_score('2016-08-15', (18, 25)):.5f}")
 
 # %% [markdown]
 # ## Final fit and submission
@@ -101,7 +58,7 @@ if RUN_VALIDATION:
 
 # %%
 cut_test = int(np.where(fb.dates == pd.Timestamp("2017-08-15"))[0][0])
-Xt, pt = forecast(fb, cut_test, CONFIG)
+Xt, pt = forecast(fb, cut_test)
 
 pred = pd.DataFrame({
     "date": fb.dates[Xt.cutoff.values + Xt.h.values.astype(int)],
@@ -113,3 +70,22 @@ sub = test.merge(pred, on=["date", "store_nbr", "family"], how="left")[["id", "s
 assert len(sub) == 28512 and sub.sales.notna().all()
 sub.to_csv("submission.csv", index=False)
 sub.describe()
+
+# %% [markdown]
+# ## Known risks in the test window
+#
+# Two things about 2017-08-16 to 08-31 are not covered by either holdout:
+#
+# - The 2017 back-to-school season (school and office supplies, Sierra region) started
+#   about a month earlier than in 2015 and 2016 and was several times larger. Holdout A
+#   sits on its peak. Last-year features expect late August to be higher still, which
+#   may not hold in 2017.
+# - On 2017-08-16 three times the usual number of items are on promotion. Historically,
+#   even a tripling of a family's promotions lifted its mean log sales by only about
+#   0.1 to 0.15, but LightGBM forecasts much larger jumps for families whose count goes
+#   far past their recent range. Capping promotions did not survive validation, so the
+#   forecast is left as is.
+#
+# The leaderboard scores the whole test set (there is no private split). Public
+# leaderboard RMSLE: 0.41968 for the LightGBM blend alone; LB_PLACEHOLDER for this
+# version.

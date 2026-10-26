@@ -20,7 +20,9 @@ Metric: RMSLE. Target: `sales` per (date, store_nbr, family), 2017-08-16 to 2017
 
 ## Competition constraints (from the rules and data pages, checked 2026-10-26)
 
-- Submission limit: 5 per day. Up to 2 final selections. Submissions older than two months drop off the leaderboard.
+- Submission limit: 5 per day.
+- Leaderboard (from the Overview page, which governs this Getting Started competition): the whole test set is scored on the public leaderboard and there is no private leaderboard, so final submission picks do not matter. Rolling window of three months: a submission older than three months stops counting, and a team with no submission in three months drops off. The generic rules text still says "two months" and "up to 2 final submissions"; the Overview page is the specific, current statement.
+- Because the public leaderboard scores all 16 test days, the LB number is the full test score, not a noisy sample.
 - Rules acceptance is not required for this competition. Submitting by CSV upload is allowed (not kernels-only).
 - Data license: "Subject to Competition Rules". Section 7.A allows non-commercial use only. Section 7.B: "You agree not to transmit, duplicate, publish, redistribute or otherwise provide or make available the Competition Data to any party not participating in the Competition."
 - Consequence: no public Kaggle dataset built from the competition files. A per-store holiday table and gap-filled oil series are direct reshapes of `holidays_events.csv` and `oil.csv`, so publishing them would be redistribution. Notebooks that compute these features from the competition data are fine (public code sharing on Kaggle is allowed under 8.B).
@@ -71,7 +73,23 @@ Metric: RMSLE. Target: `sales` per (date, store_nbr, family), 2017-08-16 to 2017
 | 2026-10-26 | Final pipeline on Kaggle (notebook v1/v2). Same code, Kaggle's LightGBM build gives a slightly different holdout; run-to-run noise is about 0.001 | 0.38414 (Kaggle) | 0.41968 (notebook v2 output, sub 57667115) |
 | 2026-10-26 | Extra backtest, cutoff 2016-08-15 (same calendar window as test, one year earlier), direct model from 2015. Stores 18 and 25 closed during the window (unforecastable). Excluding stores 18, 25, 52: model 0.3864 vs baseline 0.4577; school supplies 0.604 vs 1.359. Not used for tuning, only as a sanity check | 0.3864 (open stores) | |
 
-Notes on the leaderboard gap: holdout improved 0.521 to 0.383 but public LB only 0.499 to 0.420. The 2016 backtest shows the model also wins clearly on a late-August window, so no pipeline bug was found. Not chasing the gap on the LB.
+Holdouts from here on: A = cutoff 2017-07-30 (all stores), B = cutoff 2016-08-15 excluding stores 18 and 25 (both closed during that window). A change is kept only if it improves both. Scores below are "A / B".
+
+| Date | Change | Holdout A / B | LB RMSLE |
+|---|---|---|---|
+| 2026-10-27 | Gap audit (src/audit.py): features at the test cutoff end on 2017-08-15 (last, mean_7, mean_112, promo_sum_14 checked against raw data); test onpromotion joins on (date, store_nbr, family) and promo_future_sum matches; oil on target days matches the filled oil.csv; submission ids equal test.csv and sample_submission row for row. No pipeline bug found | | |
+| 2026-10-27 | Reference: LightGBM blend (0.8 direct + 0.2 lag-16), 365d zero rule | 0.38287 / 0.38094 | 0.41968 |
+| 2026-10-27 | Per-family ridge on log1p, 112 days, store level + trend + store x dow + payday + holidays + centred log promo, ridge also on store levels (bug: shrinks levels toward 0) | 0.52528 / 0.56474 | |
+| 2026-10-27 | Same, store levels unpenalised. Windows 112/168/224/280/364, alpha 3/30/100, trend on/off tried; 224 days, alpha 30, no trend is best overall | alone 0.41631 / 0.40588 | |
+| 2026-10-27 | Blend 0.8 LightGBM + 0.2 linear (224, 30, no trend). Weight 0.1 to 0.4 tried; 0.2 best on A, 0.3 slightly better on B; kept 0.2 | 0.38137 / 0.37650 | |
+| 2026-10-27 | Promo cap: target-day promo features capped at 1.5x the series' max over the last 56 days. Diagnostic holdout C (cutoff 2016-01-19, contains the largest promo spikes) 0.39053 -> 0.38946 | 0.41015 / 0.38136 (rejected) | |
+
+Notes on the leaderboard gap (holdout 0.383 vs LB 0.420; the LB scores the whole test set):
+- No pipeline bug (see audit row).
+- The 2017 back-to-school season (school and office supplies, Sierra) started about a month earlier than in 2015 and 2016 and was 5 to 10 times larger: about 23k units/week in early August 2017 vs 1 to 2k in 2016. Holdout A sits on the peak; last-year features push the test forecast for late August up further, which may not hold.
+- 2017-08-16 (test day 1) has 30,539 items on promotion vs a median of about 12k. Historically a family whose promotions tripled gained only about +0.15 mean log1p (median about 0). The model forecasts day 1 about +0.2 above the following Wednesday overall and +0.4 to +1.8 for families whose promotions jump 4 to 5x (lingerie, lawn and garden, school supplies). The promo cap that would address this failed holdout A, so it is documented, not shipped.
+- In the 2016 late-August window, store closures (18, 25) made up 75 percent of the squared error. The test window can contain events like that too; nothing in the training data can predict them.
+- Backtesting a compact model over ten 16-day windows (Notebook C): RMSLE ranges from 0.39 to 0.58 across 2017 windows, so a single holdout is a noisy estimate.
 
 ## Submissions
 
