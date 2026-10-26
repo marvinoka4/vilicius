@@ -56,3 +56,5 @@ Metric: RMSLE. Target: `sales` per (date, store_nbr, family), 2017-08-16 to 2017
 
 | Date | Change | Holdout RMSLE | LB RMSLE |
 |---|---|---|---|
+| 2026-10-26 | Zero rule (no sales in last 21 days) + 14-day mean of log1p | 0.53612 | |
+| 2026-10-26 | Zero rule + same-weekday mean of log1p over last 12 weeks (decay 1.0) | 0.52084 | 0.49918 (CSV upload, sub 57664521) |
